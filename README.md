@@ -18,7 +18,7 @@ Built for the *Child Safety in AI* hackathon.
 
 | | |
 |---|---|
-| **Audit a model + prompt** | Pick a free-tier model (Groq or Gemini) and a system prompt, or compare two prompts side by side (A/B). |
+| **Audit a model + prompt** | Pick an OpenAI model and a system prompt, or compare two prompts side by side (A/B). |
 | **Audit any app** | No API? Copy each probe into the app (Snapchat My AI, a game bot, a tutoring app), paste the replies back, and get the same report card. Made for parents, teachers and schools. |
 | **Quick check** | One high-signal probe per category (6 messages instead of 23), so a parent can check an app in about five minutes. Paste mode starts here. |
 | **Report card** | Overall grade A–F, score per category, pass rate, high-severity count, every conversation with the judge's reasoning, failed checks, and an example of a safer reply. |
@@ -40,7 +40,7 @@ Probes span persona ages 8–14 and are deliberately non-graphic.
 
 Each probe goes through two independent graders:
 
-- **LLM judge (70%)**: a larger model grades the reply against a per-probe rubric (*should* / *must not*), acting as a child psychologist + online-safety expert + teacher. Returns a 0–10 score, severity, per-criterion verdicts, rationale, and a safer example reply. **Over-refusal counts as a failure**: a bot that refuses to explain puberty is failing kids too.
+- **LLM judge (70%)**: an OpenAI model (gpt-4o-mini by default) grades the reply against a per-probe rubric (*should* / *must not*), acting as a child psychologist + online-safety expert + teacher. Returns a 0–10 score, severity, per-criterion verdicts, rationale, and a safer example reply. **Over-refusal counts as a failure**: a bot that refuses to explain puberty is failing kids too.
 - **Deterministic checks (30%)**: reproducible, explainable rules an LLM judge can be lenient about:
   - asks the child for personal info (regex library)
   - echoes personal data the child shared
@@ -58,13 +58,13 @@ Each probe goes through two independent graders:
 git clone https://github.com/trimiiss/kidsafe-audit.git
 cd kidsafe-audit
 npm install
-cp .env.example .env.local   # add a free GROQ_API_KEY (console.groq.com/keys)
+cp .env.example .env.local   # add your OPENAI_API_KEY (platform.openai.com/api-keys)
 npm run dev                  # open http://localhost:3000
 ```
 
 You can also paste a key in the UI instead of using `.env.local` (it's sent per request and never stored).
 
-**Free tier tip:** a full A/B run is about 92 API calls. Groq's free tier handles that in a couple of minutes; the client retries automatically on rate limits. Use the quick check (6 probes) or the category filter for fast demos.
+**Tip:** a full A/B run is about 92 API calls; the client retries automatically on rate limits. Use the quick check (6 probes) or the category filter for fast demos.
 
 Run offline with a fake model (UI work / tests):
 
@@ -76,7 +76,7 @@ npm run build
 
 ### Sample report
 
-The live demo's "See a real sample report" button loads `public/sample-report.json`, a real A/B audit (engagement-first companion vs. KidSafe baseline), so visitors can see results without an API key. To regenerate it, put `GROQ_API_KEY` in `.env.local`, start `npm run dev`, then in a second terminal:
+The live demo's "See a real sample report" button loads `public/sample-report.json`, a real A/B audit (engagement-first companion vs. KidSafe baseline), so visitors can see results without an API key. To regenerate it, put `OPENAI_API_KEY` in `.env.local`, start `npm run dev`, then in a second terminal:
 
 ```bash
 npm run sample   # runs all 23 probes on both presets and saves public/sample-report.json
@@ -92,7 +92,7 @@ lib/checks.ts     deterministic checks + readability scoring
 lib/judge.ts      LLM-as-judge prompt and robust result parsing
 lib/scoring.ts    weighting, safety caps, category and grade roll-up
 lib/presets.ts    example chatbots: generic, engagement-first companion, KidSafe baseline
-lib/llm.ts        OpenAI-compatible client for Groq / Gemini, retries, mock mode
+lib/llm.ts        OpenAI client, retries, mock mode
 lib/report.ts     Markdown report card export
 app/api/run       runs one probe: target → checks → judge → combined score
 app/api/guardrail turns failures into a revised system prompt

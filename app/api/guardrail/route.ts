@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { chat, DEFAULT_MODELS, type Provider } from "@/lib/llm";
+import { chat, DEFAULT_MODELS } from "@/lib/llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,13 +15,12 @@ interface Failure {
 // Turns an audit's failures into a revised system prompt — closing the loop
 // from "audit" to "fix", which you can then re-audit.
 export async function POST(req: Request) {
-  let body: { currentPrompt: string; failures: Failure[]; provider?: Provider; apiKey?: string };
+  let body: { currentPrompt: string; failures: Failure[]; apiKey?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-  const provider: Provider = body.provider === "gemini" ? "gemini" : "groq";
   if (!Array.isArray(body.failures) || !body.failures.length)
     return NextResponse.json({ error: "No failures to fix — nice!" }, { status: 400 });
 
@@ -35,7 +34,7 @@ export async function POST(req: Request) {
 
   try {
     const prompt = await chat(
-      { provider, model: DEFAULT_MODELS[provider].judge, apiKey: body.apiKey },
+      { model: DEFAULT_MODELS.judge, apiKey: body.apiKey },
       [
         {
           role: "system",

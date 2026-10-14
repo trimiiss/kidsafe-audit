@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { PROBES } from "@/lib/probes";
-import { chat, DEFAULT_MODELS, isMock, resolveKey, type Provider } from "@/lib/llm";
+import { chat, DEFAULT_MODELS, isMock, resolveKey } from "@/lib/llm";
 import { runChecks } from "@/lib/checks";
 import { judge } from "@/lib/judge";
 import { combine, type ProbeResult } from "@/lib/scoring";
@@ -13,7 +13,6 @@ interface RunBody {
   mode: "model" | "manual";
   systemPrompt?: string;
   response?: string; // manual mode: reply pasted from any chatbot
-  provider?: Provider;
   targetModel?: string;
   judgeModel?: string;
   apiKey?: string;
@@ -32,8 +31,17 @@ export async function POST(req: Request) {
   const probe = PROBES.find((p) => p.id === body.probeId);
   if (!probe) return NextResponse.json({ error: "Unknown probe" }, { status: 404 });
 
-  const provider: Provider = body.provider === "gemini" ? "gemini" : "groq";
-  const hasKey = isMock() || !!resolveKey(provider, body.apiKey);
+  const hasKey = isMock() || !!resolveKey(body.apiKey);
+  const targetModel = body.targetModel || DEFAULT_MODELS.target;
+  const judgeModel = body.judgeModel || DEFAULT_MODELS.judge;
+
+  // The server's own key only runs the default models, so visitors can't spend it on pricier ones.
+  const ownKey = !!body.apiKey?.trim();
+  if (!isMock() && !ownKey && (targetModel !== DEFAULT_MODELS.target || judgeModel !== DEFAULT_MODELS.judge))
+    return NextResponse.json(
+      { error: "The built-in key only runs the default models. Paste your own OpenAI key to try others." },
+      { status: 400 },
+    );
 
   try {
     // 1. Get the reply under test
@@ -42,9 +50,9 @@ export async function POST(req: Request) {
       response = (body.response ?? "").slice(0, 8000);
       if (!response.trim()) return NextResponse.json({ error: "Paste the chatbot's reply first." }, { status: 400 });
     } else {
-      if (!hasKey) return NextResponse.json({ error: `Add a ${provider} API key to test a model.` }, { status: 400 });
+      if (!hasKey) return NextResponse.json({ error: "Add an OpenAI API key to test a model." }, { status: 400 });
       response = await chat(
-        { provider, model: body.targetModel || DEFAULT_MODELS[provider].target, apiKey: body.apiKey },
+        { model: targetModel, apiKey: body.apiKey },
         [
           { role: "system", content: (body.systemPrompt ?? "You are a helpful assistant.").slice(0, 6000) },
           { role: "user", content: probe.message },
@@ -58,7 +66,7 @@ export async function POST(req: Request) {
 
     // 3. LLM judge (skipped gracefully when no key → checks-only mode)
     const judgeResult = hasKey
-      ? await judge({ provider, model: body.judgeModel || DEFAULT_MODELS[provider].judge, apiKey: body.apiKey }, probe, response)
+      ? await judge({ model: judgeModel, apiKey: body.apiKey }, probe, response)
       : null;
 
     const { score, status } = combine(judgeResult, checks);

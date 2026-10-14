@@ -7,7 +7,6 @@ import type { ProbeResult } from "@/lib/scoring";
 import { toMarkdown, download } from "@/lib/report";
 import { Findings, Report, type RunSet } from "./components/Report";
 
-type Provider = "groq" | "gemini";
 type Mode = "model" | "manual";
 
 interface Config {
@@ -18,8 +17,8 @@ interface Config {
 
 interface ServerConfig {
   mock: boolean;
-  serverKeys: Record<Provider, boolean>;
-  models: Record<Provider, { target: string; judge: string }>;
+  serverKey: boolean;
+  models: { target: string; judge: string };
 }
 
 // Shape of the "Raw JSON" export, which is also what /sample-report.json holds.
@@ -40,7 +39,6 @@ const presetToConfig = (id: string): Config => {
 export default function Home() {
   const [server, setServer] = useState<ServerConfig | null>(null);
   const [mode, setMode] = useState<Mode>("model");
-  const [provider, setProvider] = useState<Provider>("groq");
   const [apiKey, setApiKey] = useState("");
   const [targetModel, setTargetModel] = useState("");
   const [judgeModel, setJudgeModel] = useState("");
@@ -70,10 +68,7 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
-      .then((c: ServerConfig) => {
-        setServer(c);
-        if (!c.serverKeys.groq && c.serverKeys.gemini) setProvider("gemini");
-      })
+      .then((c: ServerConfig) => setServer(c))
       .catch(() => {});
     fetch("/sample-report.json")
       .then((r) => (r.ok ? r.json() : null))
@@ -85,13 +80,13 @@ export default function Home() {
 
   useEffect(() => {
     if (server) {
-      setTargetModel(server.models[provider].target);
-      setJudgeModel(server.models[provider].judge);
+      setTargetModel(server.models.target);
+      setJudgeModel(server.models.judge);
     }
-  }, [server, provider]);
+  }, [server]);
 
   const probes = useMemo(() => probesFor(cats, maxAge, quick), [cats, maxAge, quick]);
-  const hasKey = !!server?.mock || !!server?.serverKeys[provider] || apiKey.trim().length > 0;
+  const hasKey = !!server?.mock || !!server?.serverKey || apiKey.trim().length > 0;
   const manualFilled = probes.filter((p) => (manual[p.id] ?? "").trim()).length;
 
   async function runOne(probe: Probe, payload: Record<string, unknown>): Promise<ProbeResult> {
@@ -99,7 +94,7 @@ export default function Home() {
       const res = await fetch("/api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ probeId: probe.id, provider, apiKey: apiKey || undefined, targetModel, judgeModel, ...payload }),
+        body: JSON.stringify({ probeId: probe.id, apiKey: apiKey || undefined, targetModel, judgeModel, ...payload }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -123,7 +118,7 @@ export default function Home() {
     const data: AuditExport = {
       kind: "kidsafe-audit",
       generatedAt: viewing?.generatedAt ?? new Date().toISOString(),
-      provider: viewing?.provider ?? (mode === "manual" ? `${provider} (pasted replies)` : provider),
+      provider: viewing?.provider ?? (mode === "manual" ? "openai (pasted replies)" : "openai"),
       targetModel: viewing ? viewing.targetModel : mode === "model" ? targetModel : undefined,
       judgeModel: viewing?.judgeModel ?? (hasKey ? judgeModel : "none (rule checks only)"),
       sets,
@@ -197,7 +192,7 @@ export default function Home() {
       const res = await fetch("/api/guardrail", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPrompt: set.systemPrompt, failures, provider, apiKey: apiKey || undefined }),
+        body: JSON.stringify({ currentPrompt: set.systemPrompt, failures, apiKey: apiKey || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -228,7 +223,7 @@ export default function Home() {
           </div>
         </div>
         <div className="top-meta">
-          {server?.mock ? "MOCK MODE" : `${provider} · judge ${judgeModel || "…"}`}
+          {server?.mock ? "MOCK MODE" : `OpenAI · judge ${judgeModel || "…"}`}
         </div>
       </header>
 
@@ -318,7 +313,7 @@ export default function Home() {
       <div className="panel">
         <div className="step">Step 2 · Scope & AI settings</div>
         <h2>Audit settings</h2>
-        <p className="sub">Narrow the probe set, and choose the free-tier provider that powers the target and the judge.</p>
+        <p className="sub">Narrow the probe set, and choose the OpenAI models that power the target and the judge.</p>
 
         <div className="field" style={{ marginBottom: 16 }}>
           <label>Probe set</label>
@@ -358,17 +353,10 @@ export default function Home() {
             </select>
           </div>
           <div className="field">
-            <label>Provider</label>
-            <select value={provider} onChange={(e) => setProvider(e.target.value as Provider)}>
-              <option value="groq">Groq (free tier)</option>
-              <option value="gemini">Google Gemini (free tier)</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>API key {server?.serverKeys[provider] ? "(server key set)" : ""}</label>
+            <label>OpenAI API key {server?.serverKey ? "(server key set)" : ""}</label>
             <input
               type="password"
-              placeholder={server?.serverKeys[provider] ? "Using server key" : "Paste a free key (not stored)"}
+              placeholder={server?.serverKey ? "Using server key" : "Paste a key (not stored)"}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
             />
@@ -390,7 +378,7 @@ export default function Home() {
         )}
         {!hasKey && mode === "model" && (
           <div className="notice info">
-            Add a free API key to audit a model — Groq: console.groq.com/keys · Gemini: aistudio.google.com/apikey
+            Add an OpenAI API key to audit a model — get one at platform.openai.com/api-keys
           </div>
         )}
 

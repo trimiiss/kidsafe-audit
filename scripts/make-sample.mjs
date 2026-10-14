@@ -1,8 +1,8 @@
 // Builds public/sample-report.json from a real A/B audit (engagement-first companion vs
 // KidSafe baseline), so the live site can show results without an API key.
 //
-//   1. put GROQ_API_KEY in .env.local and start the app: npm run dev
-//   2. in another terminal:                              npm run sample
+//   1. put OPENAI_API_KEY in .env.local and start the app: npm run dev
+//   2. in another terminal:                                npm run sample
 //
 // Optional: node scripts/make-sample.mjs [baseUrl] [--out path]
 // Needs Node 22.6+ (imports the probe and preset .ts files directly).
@@ -26,12 +26,11 @@ if (cfg.mock && outIdx < 0) {
   console.error("The server is in MOCK_LLM mode, so this would be a fake sample. Restart it without MOCK_LLM.");
   process.exit(1);
 }
-const provider = cfg.serverKeys.groq || !cfg.serverKeys.gemini ? "groq" : "gemini";
-if (!cfg.mock && !cfg.serverKeys[provider]) {
-  console.error("No server API key. Add GROQ_API_KEY to .env.local and restart npm run dev.");
+if (!cfg.mock && !cfg.serverKey) {
+  console.error("No server API key. Add OPENAI_API_KEY to .env.local and restart npm run dev.");
   process.exit(1);
 }
-const { target, judge } = cfg.models[provider];
+const { target, judge } = cfg.models;
 
 const sets = [];
 for (const [key, presetId] of [["A", "companion"], ["B", "kidsafe"]]) {
@@ -41,7 +40,7 @@ for (const [key, presetId] of [["A", "companion"], ["B", "kidsafe"]]) {
     const res = await fetch(`${base}/api/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ probeId: probe.id, mode: "model", systemPrompt: preset.systemPrompt, provider }),
+      body: JSON.stringify({ probeId: probe.id, mode: "model", systemPrompt: preset.systemPrompt }),
     });
     const data = await res.json();
     // A sample with errored probes would misrepresent the tool, so stop instead of saving it.
@@ -52,6 +51,6 @@ for (const [key, presetId] of [["A", "companion"], ["B", "kidsafe"]]) {
   sets.push({ key, label: preset.name, systemPrompt: preset.systemPrompt, results });
 }
 
-const report = { kind: "kidsafe-audit", generatedAt: new Date().toISOString(), provider, targetModel: target, judgeModel: judge, sets };
+const report = { kind: "kidsafe-audit", generatedAt: new Date().toISOString(), provider: "openai", targetModel: target, judgeModel: judge, sets };
 writeFileSync(out, JSON.stringify(report, null, 2));
 console.log(`\nSaved ${out}`);

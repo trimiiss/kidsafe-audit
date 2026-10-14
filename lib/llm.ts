@@ -1,7 +1,4 @@
-// Minimal OpenAI-compatible client for free-tier providers (Groq, Gemini).
-// Both expose an OpenAI-style /chat/completions endpoint, so one client covers both.
-
-export type Provider = "groq" | "gemini";
+// Minimal OpenAI chat client: retries on rate limits, plus a mock mode for running offline.
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -9,30 +6,20 @@ export interface ChatMessage {
 }
 
 export interface LLMConfig {
-  provider: Provider;
   model: string;
   apiKey?: string; // falls back to env
 }
 
-const BASE_URL: Record<Provider, string> = {
-  groq: "https://api.groq.com/openai/v1",
-  gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
+const CHAT_URL = "https://api.openai.com/v1/chat/completions";
+
+export const DEFAULT_MODELS = {
+  target: process.env.OPENAI_TARGET_MODEL || "gpt-4o-mini",
+  judge: process.env.OPENAI_JUDGE_MODEL || "gpt-4o-mini",
 };
 
-export const DEFAULT_MODELS: Record<Provider, { target: string; judge: string }> = {
-  groq: {
-    target: process.env.GROQ_TARGET_MODEL || "llama-3.1-8b-instant",
-    judge: process.env.GROQ_JUDGE_MODEL || "llama-3.3-70b-versatile",
-  },
-  gemini: {
-    target: process.env.GEMINI_TARGET_MODEL || "gemini-2.0-flash",
-    judge: process.env.GEMINI_JUDGE_MODEL || "gemini-2.0-flash",
-  },
-};
-
-export function resolveKey(provider: Provider, override?: string): string | undefined {
+export function resolveKey(override?: string): string | undefined {
   if (override && override.trim()) return override.trim();
-  return provider === "groq" ? process.env.GROQ_API_KEY : process.env.GEMINI_API_KEY;
+  return process.env.OPENAI_API_KEY;
 }
 
 export function isMock(): boolean {
@@ -48,20 +35,20 @@ export async function chat(
 ): Promise<string> {
   if (isMock()) return mockChat(messages, opts.json);
 
-  const key = resolveKey(cfg.provider, cfg.apiKey);
-  if (!key) throw new Error(`No API key for ${cfg.provider}. Set it in .env.local or paste it in Settings.`);
+  const key = resolveKey(cfg.apiKey);
+  if (!key) throw new Error("No OpenAI API key. Set OPENAI_API_KEY in .env.local or paste it in Settings.");
 
   const body: Record<string, unknown> = {
     model: cfg.model,
     messages,
     temperature: opts.temperature ?? 0.7,
-    max_tokens: opts.maxTokens ?? 700,
+    max_completion_tokens: opts.maxTokens ?? 700,
   };
   if (opts.json) body.response_format = { type: "json_object" };
 
-  // Free tiers rate-limit aggressively, so retry 429/5xx with backoff.
+  // Retry rate limits (429) and server errors (5xx) with backoff.
   for (let attempt = 0; attempt < 5; attempt++) {
-    const res = await fetch(`${BASE_URL[cfg.provider]}/chat/completions`, {
+    const res = await fetch(CHAT_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify(body),
@@ -76,9 +63,14 @@ export async function chat(
       continue;
     }
     const text = await res.text();
-    throw new Error(`${cfg.provider} API error ${res.status}: ${text.slice(0, 300)}`);
+    // Some OpenAI models (e.g. gpt-5.5) only accept the default temperature: drop it and retry.
+    if (res.status === 400 && "temperature" in body && /temperature/i.test(text)) {
+      delete body.temperature;
+      continue;
+    }
+    throw new Error(`OpenAI API error ${res.status}: ${text.slice(0, 300)}`);
   }
-  throw new Error(`${cfg.provider} API kept rate-limiting. Try again in a minute or use fewer probes.`);
+  throw new Error("OpenAI API kept rate-limiting. Try again in a minute or use fewer probes.");
 }
 
 // Pulls the first JSON object out of a model reply (models sometimes wrap it in prose or ```json).
