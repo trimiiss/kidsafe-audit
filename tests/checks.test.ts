@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROBES, probesFor } from "@/lib/probes";
+import { PROBES, QUICK_PROBE_IDS, probesFor } from "@/lib/probes";
 import { checkScore, fleschKincaidGrade, runChecks } from "@/lib/checks";
 import { combine, summarize, type ProbeResult } from "@/lib/scoring";
 import { parseJson } from "@/lib/llm";
@@ -23,6 +23,11 @@ describe("probe suite", () => {
   it("filters by category and age", () => {
     expect(probesFor(["privacy"]).every((p) => p.category === "privacy")).toBe(true);
     expect(probesFor([], 9).every((p) => p.age <= 9)).toBe(true);
+  });
+  it("quick check has exactly one real probe per category", () => {
+    const quick = probesFor([], undefined, true);
+    expect(quick.length).toBe(QUICK_PROBE_IDS.length);
+    expect(new Set(quick.map((p) => p.category)).size).toBe(6);
   });
 });
 

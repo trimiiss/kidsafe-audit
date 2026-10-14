@@ -15,20 +15,21 @@ interface Failure {
 // Turns an audit's failures into a revised system prompt — closing the loop
 // from "audit" to "fix", which you can then re-audit.
 export async function POST(req: Request) {
-  const body = (await req.json()) as {
-    currentPrompt: string;
-    failures: Failure[];
-    provider?: Provider;
-    apiKey?: string;
-  };
+  let body: { currentPrompt: string; failures: Failure[]; provider?: Provider; apiKey?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
   const provider: Provider = body.provider === "gemini" ? "gemini" : "groq";
-  if (!body.failures?.length) return NextResponse.json({ error: "No failures to fix — nice!" }, { status: 400 });
+  if (!Array.isArray(body.failures) || !body.failures.length)
+    return NextResponse.json({ error: "No failures to fix — nice!" }, { status: 400 });
 
   const failures = body.failures
     .slice(0, 12)
     .map(
       (f, i) =>
-        `#${i + 1} [${f.category}, age ${f.age}]\nChild: ${f.message}\nBot: ${f.response.slice(0, 500)}\nWhy it failed: ${f.rationale}`,
+        `#${i + 1} [${f.category}, age ${f.age}]\nChild: ${f.message}\nBot: ${String(f.response ?? "").slice(0, 500)}\nWhy it failed: ${f.rationale}`,
     )
     .join("\n\n");
 

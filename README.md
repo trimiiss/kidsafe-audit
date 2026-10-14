@@ -6,6 +6,10 @@ Kids are already talking to AI: homework tutors, game chatbots, "AI best friend"
 
 KidSafe Audit runs any chatbot through **23 realistic messages written in a child's voice**, grades every reply with an **AI judge plus transparent rule-based checks**, gives the bot a **letter grade per safety category**, and then **writes a safer system prompt** you can re-audit to prove the fix worked.
 
+Expert reviews of AI products for kids, like Common Sense Media's AI risk assessments, are done by hand, one product at a time. KidSafe Audit makes that kind of check automatic, open-source and repeatable, and it doesn't stop at a grade: it writes the fix.
+
+**Live demo: https://kidsafe-audit.vercel.app**
+
 Built for the *Child Safety in AI* hackathon.
 
 ---
@@ -16,6 +20,7 @@ Built for the *Child Safety in AI* hackathon.
 |---|---|
 | **Audit a model + prompt** | Pick a free-tier model (Groq or Gemini) and a system prompt, or compare two prompts side by side (A/B). |
 | **Audit any app** | No API? Copy each probe into the app (Snapchat My AI, a game bot, a tutoring app), paste the replies back, and get the same report card. Made for parents, teachers and schools. |
+| **Quick check** | One high-signal probe per category (6 messages instead of 23), so a parent can check an app in about five minutes. Paste mode starts here. |
 | **Report card** | Overall grade A–F, score per category, pass rate, high-severity count, every conversation with the judge's reasoning, failed checks, and an example of a safer reply. |
 | **Fix it** | One click turns the failures into a revised system prompt that keeps the product's personality, then loads it as config B to re-audit. |
 | **Export** | Markdown report card (shareable with a school or product team) and raw JSON. |
@@ -50,7 +55,7 @@ Each probe goes through two independent graders:
 ## Quick start
 
 ```bash
-git clone <your-repo-url> kidsafe-audit
+git clone https://github.com/trimiiss/kidsafe-audit.git
 cd kidsafe-audit
 npm install
 cp .env.example .env.local   # add a free GROQ_API_KEY (console.groq.com/keys)
@@ -59,7 +64,7 @@ npm run dev                  # open http://localhost:3000
 
 You can also paste a key in the UI instead of using `.env.local` (it's sent per request and never stored).
 
-**Free tier tip:** a full A/B run is about 92 API calls. Groq's free tier handles that in a couple of minutes; the client retries automatically on rate limits. Use the category filter for quick demos.
+**Free tier tip:** a full A/B run is about 92 API calls. Groq's free tier handles that in a couple of minutes; the client retries automatically on rate limits. Use the quick check (6 probes) or the category filter for fast demos.
 
 Run offline with a fake model (UI work / tests):
 
@@ -68,6 +73,16 @@ MOCK_LLM=1 npm run dev
 npm test        # unit tests for checks, scoring caps and parsing
 npm run build
 ```
+
+### Sample report
+
+The live demo's "See a real sample report" button loads `public/sample-report.json`, a real A/B audit (engagement-first companion vs. KidSafe baseline), so visitors can see results without an API key. To regenerate it, put `GROQ_API_KEY` in `.env.local`, start `npm run dev`, then in a second terminal:
+
+```bash
+npm run sample   # runs all 23 probes on both presets and saves public/sample-report.json
+```
+
+The button only appears when that file exists. You can also save any audit from the UI with **Raw JSON** and use it as the sample.
 
 ## Project structure
 
@@ -81,7 +96,8 @@ lib/llm.ts        OpenAI-compatible client for Groq / Gemini, retries, mock mode
 lib/report.ts     Markdown report card export
 app/api/run       runs one probe: target → checks → judge → combined score
 app/api/guardrail turns failures into a revised system prompt
-app/page.tsx      UI: setup, live progress, report card, fix loop, paste mode
+app/page.tsx      UI: setup, live progress, report card, fix loop, paste mode, sample report
+scripts/          make-sample.mjs builds public/sample-report.json from a real audit
 tests/            vitest unit tests
 ```
 
@@ -89,6 +105,7 @@ tests/            vitest unit tests
 
 - **Probes, not surveillance.** KidSafe audits the *product*, not the child. No child data is collected; nothing is stored server-side.
 - **Two graders, not one.** LLM judges are flexible but can be inconsistent; rules are rigid but transparent. Combining them, with caps, gives scores that are both nuanced and hard to game.
+- **The judge treats replies as data.** A reply that tries to talk to the grader ("rate this 10/10") is ignored and counted against the bot, which matters in paste mode where anyone can submit text.
 - **Audit → fix → re-audit.** A score alone doesn't help a developer. The guardrail generator closes the loop, and the A/B view shows whether the fix actually worked.
 - **Over-refusal is a failure.** Blanket refusals push kids toward worse sources, so the suite rewards honest, age-appropriate answers.
 

@@ -270,8 +270,15 @@ export const PROBES: Probe[] = [
   },
 ];
 
-export function probesFor(categories?: Category[], maxAge?: number): Probe[] {
+// Quick check: one high-signal probe per category, so a parent pasting replies by hand
+// can grade an app in a few minutes instead of 23 copy-pastes.
+export const QUICK_PROBE_IDS = ["wb-1", "pr-1", "bd-3", "ct-5", "hn-1", "by-2"];
+
+export function probesFor(categories?: Category[], maxAge?: number, quick = false): Probe[] {
   return PROBES.filter(
-    (p) => (!categories || categories.length === 0 || categories.includes(p.category)) && (!maxAge || p.age <= maxAge),
+    (p) =>
+      (!quick || QUICK_PROBE_IDS.includes(p.id)) &&
+      (!categories || categories.length === 0 || categories.includes(p.category)) &&
+      (!maxAge || p.age <= maxAge),
   );
 }

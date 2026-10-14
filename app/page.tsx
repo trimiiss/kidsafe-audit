@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CATEGORY_META, PROBES, probesFor, type Category, type Probe } from "@/lib/probes";
+import { CATEGORY_META, PROBES, QUICK_PROBE_IDS, probesFor, type Category, type Probe } from "@/lib/probes";
 import { PRESETS } from "@/lib/presets";
 import type { ProbeResult } from "@/lib/scoring";
 import { toMarkdown, download } from "@/lib/report";
@@ -22,6 +22,16 @@ interface ServerConfig {
   models: Record<Provider, { target: string; judge: string }>;
 }
 
+// Shape of the "Raw JSON" export, which is also what /sample-report.json holds.
+interface AuditExport {
+  kind: "kidsafe-audit";
+  generatedAt: string;
+  provider: string;
+  targetModel?: string;
+  judgeModel: string;
+  sets: RunSet[];
+}
+
 const presetToConfig = (id: string): Config => {
   const p = PRESETS.find((x) => x.id === id) ?? PRESETS[0];
   return { presetId: p.id, label: p.name, systemPrompt: p.systemPrompt };
@@ -40,6 +50,7 @@ export default function Home() {
   const [compare, setCompare] = useState(true);
   const [cats, setCats] = useState<Category[]>([]);
   const [maxAge, setMaxAge] = useState(17);
+  const [quick, setQuick] = useState(false);
 
   const [manualLabel, setManualLabel] = useState("My kid's chatbot app");
   const [manual, setManual] = useState<Record<string, string>>({});
@@ -52,12 +63,22 @@ export default function Home() {
 
   const [guard, setGuard] = useState<{ loading: boolean; prompt: string; err: string }>({ loading: false, prompt: "", err: "" });
 
+  // A real, pre-run audit shipped in /public so visitors can see results without an API key.
+  const [sample, setSample] = useState<AuditExport | null>(null);
+  const [viewing, setViewing] = useState<AuditExport | null>(null);
+
   useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
       .then((c: ServerConfig) => {
         setServer(c);
         if (!c.serverKeys.groq && c.serverKeys.gemini) setProvider("gemini");
+      })
+      .catch(() => {});
+    fetch("/sample-report.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: AuditExport | null) => {
+        if (d?.kind === "kidsafe-audit" && Array.isArray(d.sets) && d.sets.length) setSample(d);
       })
       .catch(() => {});
   }, []);
@@ -69,7 +90,7 @@ export default function Home() {
     }
   }, [server, provider]);
 
-  const probes = useMemo(() => probesFor(cats, maxAge), [cats, maxAge]);
+  const probes = useMemo(() => probesFor(cats, maxAge, quick), [cats, maxAge, quick]);
   const hasKey = !!server?.mock || !!server?.serverKeys[provider] || apiKey.trim().length > 0;
   const manualFilled = probes.filter((p) => (manual[p.id] ?? "").trim()).length;
 
@@ -88,8 +109,31 @@ export default function Home() {
     }
   }
 
+  function showSample() {
+    if (!sample) return;
+    setError("");
+    setGuard({ loading: false, prompt: "", err: "" });
+    setProgress({ done: 0, total: 0 });
+    setSets(sample.sets);
+    setViewing(sample);
+    setTimeout(() => document.getElementById("report")?.scrollIntoView({ behavior: "smooth" }), 100);
+  }
+
+  function exportJson() {
+    const data: AuditExport = {
+      kind: "kidsafe-audit",
+      generatedAt: viewing?.generatedAt ?? new Date().toISOString(),
+      provider: viewing?.provider ?? (mode === "manual" ? `${provider} (pasted replies)` : provider),
+      targetModel: viewing ? viewing.targetModel : mode === "model" ? targetModel : undefined,
+      judgeModel: viewing?.judgeModel ?? (hasKey ? judgeModel : "none (rule checks only)"),
+      sets,
+    };
+    download("kidsafe-results.json", JSON.stringify(data, null, 2), "application/json");
+  }
+
   async function startAudit() {
     setError("");
+    setViewing(null);
     setGuard({ loading: false, prompt: "", err: "" });
     stopRef.current = false;
 
@@ -198,6 +242,14 @@ export default function Home() {
             &ldquo;keep this a secret from my parents&rdquo; to &ldquo;nobody would notice if I disappeared&rdquo; — then
             grades every reply with an AI judge plus transparent rule checks, and writes the fix.
           </p>
+          {sample && (
+            <div className="row" style={{ marginTop: 18 }}>
+              <button className="btn" onClick={showSample}>
+                See a real sample report →
+              </button>
+              <span className="probe-meta">No API key needed</span>
+            </div>
+          )}
         </div>
         <div className="hero-stats">
           <div className="hero-stat">
@@ -225,7 +277,14 @@ export default function Home() {
           <button className={`tab ${mode === "model" ? "on" : ""}`} onClick={() => setMode("model")}>
             Audit a model + prompt
           </button>
-          <button className={`tab ${mode === "manual" ? "on" : ""}`} onClick={() => setMode("manual")}>
+          <button
+            className={`tab ${mode === "manual" ? "on" : ""}`}
+            onClick={() => {
+              // Pasting replies by hand is slow, so paste mode starts with the 6-probe quick check.
+              if (mode !== "manual") setQuick(true);
+              setMode("manual");
+            }}
+          >
             Audit any app (paste replies)
           </button>
         </div>
@@ -244,7 +303,15 @@ export default function Home() {
             </div>
           </>
         ) : (
-          <ManualMode probes={probes} manual={manual} setManual={setManual} label={manualLabel} setLabel={setManualLabel} />
+          <ManualMode
+            probes={probes}
+            quick={quick}
+            setQuick={setQuick}
+            manual={manual}
+            setManual={setManual}
+            label={manualLabel}
+            setLabel={setManualLabel}
+          />
         )}
       </div>
 
@@ -252,6 +319,18 @@ export default function Home() {
         <div className="step">Step 2 · Scope & AI settings</div>
         <h2>Audit settings</h2>
         <p className="sub">Narrow the probe set, and choose the free-tier provider that powers the target and the judge.</p>
+
+        <div className="field" style={{ marginBottom: 16 }}>
+          <label>Probe set</label>
+          <div className="chips">
+            <button className={`chip ${!quick ? "on" : ""}`} onClick={() => setQuick(false)}>
+              Full suite · {PROBES.length} probes
+            </button>
+            <button className={`chip ${quick ? "on" : ""}`} onClick={() => setQuick(true)}>
+              Quick check · {QUICK_PROBE_IDS.length} probes, one per category
+            </button>
+          </div>
+        </div>
 
         <div className="field" style={{ marginBottom: 16 }}>
           <label>Categories (none selected = all)</label>
@@ -380,14 +459,19 @@ export default function Home() {
                 </button>
               ))}
             {finished && (
-              <button
-                className="btn ghost small"
-                onClick={() => download("kidsafe-results.json", JSON.stringify(sets, null, 2), "application/json")}
-              >
+              <button className="btn ghost small" onClick={exportJson}>
                 Raw JSON
               </button>
             )}
           </div>
+
+          {viewing && (
+            <div className="notice info" style={{ marginTop: 0, marginBottom: 16 }}>
+              <b>Sample report.</b> A real audit run on {viewing.generatedAt.slice(0, 10)}
+              {viewing.targetModel ? ` with ${viewing.targetModel} as the chatbot` : ""}, graded by {viewing.judgeModel}.
+              Replies vary between runs; run your own audit above to check any chatbot.
+            </div>
+          )}
 
           <Report sets={sets} />
 
@@ -471,12 +555,16 @@ function ConfigEditor({ tag, cfg, onChange }: { tag: "A" | "B"; cfg: Config; onC
 
 function ManualMode({
   probes,
+  quick,
+  setQuick,
   manual,
   setManual,
   label,
   setLabel,
 }: {
   probes: Probe[];
+  quick: boolean;
+  setQuick: (q: boolean) => void;
   manual: Record<string, string>;
   setManual: (fn: (m: Record<string, string>) => Record<string, string>) => void;
   label: string;
@@ -487,7 +575,19 @@ function ManualMode({
     <>
       <div className="notice info" style={{ marginTop: 0, marginBottom: 14 }}>
         For apps without an API (school tutors, game chatbots, companion apps): send each message below to the app, paste
-        its reply, then run the audit. Fill as many as you like.
+        its reply, then run the audit. Fill as many as you like.{" "}
+        {quick ? (
+          <>
+            Showing the {probes.length}-message quick check.{" "}
+            <button className="linkish" onClick={() => setQuick(false)}>
+              Show all {PROBES.length}
+            </button>
+          </>
+        ) : (
+          <button className="linkish" onClick={() => setQuick(true)}>
+            Switch to the {QUICK_PROBE_IDS.length}-message quick check
+          </button>
+        )}
       </div>
       <div className="field" style={{ marginBottom: 14, maxWidth: 360 }}>
         <label>App name</label>
