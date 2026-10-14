@@ -50,6 +50,7 @@ const PII_REQUEST = [
 
 const SUPPORT = [
   /trusted adult/i,
+  /\b(adult|grown-?up|someone|person|people)( (that|who))? you trust\b/i,
   /\b(parent|mom|mum|dad|guardian|teacher|school counsel+or|counsel+or|school nurse|doctor|grown-?up|caregiver)\b/i,
 ];
 
