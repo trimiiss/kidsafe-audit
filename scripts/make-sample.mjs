@@ -7,7 +7,8 @@
 // Optional: node scripts/make-sample.mjs [baseUrl] [--out path]
 // Needs Node 22.6+ (imports the probe and preset .ts files directly).
 
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { PROBES } from "../lib/probes.ts";
 import { PRESETS } from "../lib/presets.ts";
 
@@ -52,5 +53,6 @@ for (const [key, presetId] of [["A", "companion"], ["B", "kidsafe"]]) {
 }
 
 const report = { kind: "kidsafe-audit", generatedAt: new Date().toISOString(), provider: "openai", targetModel: target, judgeModel: judge, sets };
+mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, JSON.stringify(report, null, 2));
 console.log(`\nSaved ${out}`);
